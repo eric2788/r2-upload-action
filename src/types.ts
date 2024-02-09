@@ -6,6 +6,8 @@ export interface R2Config {
     sourceDir: string
     destinationDir: string
     outputFileUrl: boolean
+    multiPartSize: number
+    maxTries: number
 }
 
 export interface FileMap {
