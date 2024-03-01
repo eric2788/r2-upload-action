@@ -1,3 +1,6 @@
+> This is the fork version with concurrent multipart upload support.
+> See: [index.ts#L130](https://github.com/eric2788/r2-upload-action/blob/master/src/index.ts#L130)
+
 # R2 Upload Action
 GitHub Action to upload files to a Cloudflare R2 bucket, built on top of @aws-sdk/client-s3 in TypeScript.
 <br>

@@ -63,21 +63,21 @@ const getFileList = (dir: string) => {
     return files;
 };
 
-const formatBytes = function(bytes: number): string {
+const formatBytes = function (bytes: number): string {
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"]
-  
+
     if (bytes == 0) {
-      return "0 Bytes"
+        return "0 Bytes"
     }
-  
+
     const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  
+
     if (i == 0) {
-      return bytes + " " + sizes[i]
+        return bytes + " " + sizes[i]
     }
-  
+
     return (bytes / Math.pow(1024, i)).toFixed(2) + " " + sizes[i]
-  }
+}
 
 const getFileSizeMB = (file: string) => {
     return fs.statSync(file).size / (1024 * 1024);
@@ -154,6 +154,8 @@ const uploadMultiPart = async (file: string, config: R2Config) => {
     const totalSize = formatFileSize(file);
     let bytesRead = 0;
     let partNumber = 0;
+    const threads = [];
+    let interrupted = false;
     for await (const chunk of readFixedChunkSize(file, chunkSize)) {
 
         const uploadPartParams: UploadPartCommandInput = {
@@ -164,33 +166,44 @@ const uploadMultiPart = async (file: string, config: R2Config) => {
             Body: chunk,
         }
 
-        const cmd = new UploadPartCommand(uploadPartParams);
-        let retries = 0
-        while (retries < config.maxTries) {
-            try {
-                const result = await S3.send(cmd);
-                multiPartMap.Parts.push({ PartNumber: partNumber, ETag: result.ETag });
-                break;
-            } catch (err: any) {
-                retries++;
-                console.error(`R2 Error - ${err.message}, retrying: ${retries}/${config.maxTries}`, err);
-                await sleep(300);
+        const uploadPart = async (partNumber: number) => {
+            const cmd = new UploadPartCommand(uploadPartParams);
+            let retries = 0
+            while (retries < config.maxTries) {
+                if (interrupted) {
+                    console.info(`R2 Info - Aborting upload part ${partNumber} of ${file} due to previous error`)
+                    return;
+                }
+                try {
+                    const result = await S3.send(cmd);
+                    multiPartMap.Parts.push({ PartNumber: partNumber, ETag: result.ETag });
+                    break;
+                } catch (err: any) {
+                    retries++;
+                    console.error(`R2 Error - ${err.message}, retrying: ${retries}/${config.maxTries}`, err);
+                    await sleep(300);
+                }
             }
-        }
-        if (retries >= config.maxTries) {
-            console.info(`Retries exhausted, aborting upload`)
-            const abortParams: AbortMultipartUploadCommandInput = {
-                Bucket: config.bucket,
-                Key: fileKey,
-                UploadId: created.UploadId
+            if (retries >= config.maxTries) {
+                console.info(`Retries exhausted, aborting upload`)
+                interrupted = true;
+                const abortParams: AbortMultipartUploadCommandInput = {
+                    Bucket: config.bucket,
+                    Key: fileKey,
+                    UploadId: created.UploadId
+                }
+                const cmd = new AbortMultipartUploadCommand(abortParams);
+                await S3.send(cmd);
+                throw new Error(`R2 Error - Failed to upload part ${partNumber} of ${file}`);
             }
-            const cmd = new AbortMultipartUploadCommand(abortParams);
-            await S3.send(cmd);
-            throw new Error(`R2 Error - Failed to upload part ${partNumber} of ${file}`);
+            bytesRead += chunk.byteLength;
+            console.info(`R2 Success - Uploaded part ${formatBytes(bytesRead)}/${totalSize} of ${file} (${partNumber})`)
         }
-        bytesRead += chunk.byteLength;
-        console.info(`R2 Success - Uploaded part ${formatBytes(bytesRead)}/${totalSize} of ${file} (${partNumber})`)
+
+        threads.push(uploadPart(partNumber));
     }
+
+    await Promise.all(threads);
 
     console.info(`R2 Info - Completed upload of ${file} to ${fileKey}`)
 
