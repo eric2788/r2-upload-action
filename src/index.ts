@@ -32,7 +32,8 @@ let config: R2Config = {
     destinationDir: getInput("destination-dir"),
     outputFileUrl: getInput("output-file-url") === 'true',
     multiPartSize: parseInt(getInput("multipart-size")) || 100,
-    maxTries: parseInt(getInput("max-tries")) || 5
+    maxTries: parseInt(getInput("max-tries")) || 5,
+    multiPartConcurrent: getInput("multipart-concurrent") === 'true'
 };
 
 const S3 = new S3Client({
@@ -200,10 +201,16 @@ const uploadMultiPart = async (file: string, config: R2Config) => {
             console.info(`R2 Success - Uploaded part ${formatBytes(bytesRead)}/${totalSize} of ${file} (${partNumber})`)
         }
 
-        threads.push(uploadPart(partNumber));
+        if (config.multiPartConcurrent) {
+            threads.push(uploadPart(partNumber));
+        } else {
+            await uploadPart(partNumber);
+        }
     }
 
-    await Promise.all(threads);
+    if (config.multiPartConcurrent) {
+        await Promise.all(threads);
+    }
 
     console.info(`R2 Info - Completed upload of ${file} to ${fileKey}`)
 

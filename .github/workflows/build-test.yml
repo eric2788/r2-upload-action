@@ -1,0 +1,75 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build and test'
+        required: true
+        default: 'master'
+
+jobs:
+  build:
+    name: Build and Update Mappings
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || github.event.inputs.branch }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
+      - name: Install Dependencies
+        run: pnpm i --frozen-lockfile
+      - name: Install Build Tool
+        run: pnpm i -g @vercel/ncc
+      - name: Build
+        run: pnpm run build
+      - name: Update Mappings
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: '[skip ci] Update mappings'
+          file_pattern: 'dist/*.js dist/*.js.map dist/*.cjs'
+          commit_user_name: r2-action-bot[bot]
+          commit_user_email: 118486773+r2-action-bot[bot]@users.noreply.github.com
+          commit_author: r2-action-bot[bot] <118486773+r2-action-bot[bot]@users.noreply.github.com>
+  test:
+    name: Test Action
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        concurrent: [ true, false ]
+    steps:
+        - uses: actions/checkout@v4
+          with:
+            ref: ${{ github.event_name == 'push' && github.ref || github.event.inputs.branch }}
+        - name: pull latest
+          run: git fetch && git pull --rebase
+        - name: setup
+          run: |
+            mkdir assets
+            echo downloading 1GB file
+            curl -o assets/1GB.bin https://singapore.downloadtestfile.com/1GB.bin
+            echo downloading 50MB file
+            curl -o assets/50MB.zip https://singapore.downloadtestfile.com/50MB.zip
+        - name: Echo Branch Status
+          run: git status
+        - uses: ./
+          with:
+            r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+            r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+            r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+            r2-bucket: test
+            source-dir: ./assets
+            destination-dir: ${{ github.event.repository.name }}/assets
+            multipart-size: 100
+            max-retries: 5
+            multipart-concurrent: ${{ matrix.concurrent }}
