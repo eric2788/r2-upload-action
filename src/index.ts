@@ -19,6 +19,14 @@ import md5 from "md5";
 import mime from "mime";
 import path from "path";
 import { FileMap, R2Config } from "./types.js";
+import {
+    formatBytes,
+    formatFileSize,
+    getFileList,
+    getFileSizeMB,
+    readFixedChunkSize,
+    sleep
+} from "./utils.js";
 
 
 type UploadHandler = (file: string, config: R2Config) => Promise<string>;
@@ -45,50 +53,7 @@ const S3 = new S3Client({
     }
 });
 
-const getFileList = (dir: string) => {
-    let files: string[] = [];
-    const items = fs.readdirSync(dir, {
-        withFileTypes: true,
-    });
 
-    for (const item of items) {
-        const isDir = item.isDirectory();
-        const absolutePath = `${dir}/${item.name}`;
-        if (isDir) {
-            files = [...files, ...getFileList(absolutePath)];
-        } else {
-            files.push(absolutePath);
-        }
-    }
-
-    return files;
-};
-
-const formatBytes = function (bytes: number): string {
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB"]
-
-    if (bytes == 0) {
-        return "0 Bytes"
-    }
-
-    const i = Math.floor(Math.log(bytes) / Math.log(1024))
-
-    if (i == 0) {
-        return bytes + " " + sizes[i]
-    }
-
-    return (bytes / Math.pow(1024, i)).toFixed(2) + " " + sizes[i]
-}
-
-const getFileSizeMB = (file: string) => {
-    return fs.statSync(file).size / (1024 * 1024);
-}
-
-const formatFileSize = (file: string) => {
-    return formatBytes(fs.statSync(file).size);
-}
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const run = async (config: R2Config) => {
     const urls: FileMap = {};
@@ -256,23 +221,7 @@ const putObject: UploadHandler = async (file, config) => {
     return await getSignedUrl(S3, cmd);
 }
 
-async function* readFixedChunkSize(file: string, chunkSize: number): AsyncIterable<Buffer> {
-    const stream = fs.createReadStream(file);
-    let buffer = Buffer.alloc(0);
 
-    for await (const chunk of stream) {
-        buffer = Buffer.concat([buffer, chunk]);
-
-        while (buffer.length >= chunkSize) {
-            yield buffer.subarray(0, chunkSize);
-            buffer = buffer.subarray(chunkSize);
-        }
-    }
-
-    if (buffer.length > 0) {
-        yield buffer;
-    }
-}
 
 run(config)
     .then(() => setOutput('result', 'success'))
