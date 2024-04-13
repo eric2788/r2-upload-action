@@ -60,9 +60,9 @@ const run = async (config: R2Config) => {
 
     const files: string[] = getFileList(config.sourceDir);
 
-    for (const file of files) {
+    const tasks = []
 
-        await sleep(300);
+    for (const file of files) {
 
         //const fileName = file.replace(/^.*[\\\/]/, "");
         const fileName = file.replace(config.sourceDir, "");
@@ -71,25 +71,30 @@ const run = async (config: R2Config) => {
         if (fileKey.includes('.gitkeep'))
             continue;
 
-        try {
-            const fileMB = getFileSizeMB(file);
-            console.info(`R2 Info - Uploading ${file} (${formatFileSize(file)}) to ${fileKey}`);
-            const upload = fileMB > config.multiPartSize ? uploadMultiPart : putObject;
-            const fileUrl = await upload(file, config);
-            urls[file] = fileUrl;
-        } catch (err: unknown) {
-            const error = err as S3ServiceException;
-            if (error.hasOwnProperty("$metadata")) {
-                if (error.$metadata.httpStatusCode !== 412) // If-None-Match
+        const task = async (file: string, fileKey: string) => {
+            try {
+                const fileMB = getFileSizeMB(file);
+                console.info(`R2 Info - Uploading ${file} (${formatFileSize(file)}) to ${fileKey}`);
+                const upload = fileMB > config.multiPartSize ? uploadMultiPart : putObject;
+                const fileUrl = await upload(file, config);
+                urls[file] = fileUrl;
+            } catch (err: unknown) {
+                const error = err as S3ServiceException;
+                if (error.hasOwnProperty("$metadata")) {
+                    if (error.$metadata.httpStatusCode !== 412) // If-None-Match
+                        throw error;
+                } else {
+                    // normal error, throw it
+                    console.error(`Error while uploading ${file} to ${fileKey}: `, err)
                     throw error;
-            } else {
-                // normal error, throw it
-                console.error(`Error while uploading ${file} to ${fileKey}: `, err)
-                throw error;
+                }
             }
         }
+
+        tasks.push(task(file, fileKey));
     }
 
+    await Promise.all(tasks);
     if (config.outputFileUrl) setOutput('file-urls', urls);
 };
 
@@ -191,7 +196,6 @@ const uploadMultiPart = async (file: string, config: R2Config) => {
     return await getSignedUrl(S3, completeCmd);
 }
 
-
 const putObject: UploadHandler = async (file, config) => {
     const fileName = file.replace(config.sourceDir, "");
     const fileKey = path.join(config.destinationDir !== "" ? config.destinationDir : config.sourceDir, fileName);
@@ -220,8 +224,6 @@ const putObject: UploadHandler = async (file, config) => {
     console.log(`R2 Success - ${file}`);
     return await getSignedUrl(S3, cmd);
 }
-
-
 
 run(config)
     .then(() => setOutput('result', 'success'))
