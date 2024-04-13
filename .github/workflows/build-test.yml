@@ -57,9 +57,9 @@ jobs:
           run: |
             mkdir assets
             echo downloading 1GB file
-            curl -o assets/1GB.bin https://singapore.downloadtestfile.com/1GB.bin
+            curl -o assets/1GB.bin https://ash-speed.hetzner.com/1GB.bin
             echo downloading 50MB file
-            curl -o assets/50MB.zip https://singapore.downloadtestfile.com/50MB.zip
+            curl -o assets/50MB.zip https://ash-speed.hetzner.com/50MB.zip
         - name: Echo Branch Status
           run: git status
         - uses: ./
